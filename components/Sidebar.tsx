@@ -4,11 +4,6 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { 
-  Building2, 
-  Upload, 
-  FileText, 
-  Settings, 
-  MessageSquare,
   Home
 } from 'lucide-react';
 
@@ -17,31 +12,6 @@ const sidebarItems = [
     name: 'Dashboard',
     href: '/',
     icon: Home,
-  },
-  {
-    name: 'Project Sites',
-    href: '/project-sites',
-    icon: Building2,
-  },
-  {
-    name: 'Live Uploads',
-    href: '/live-uploads',
-    icon: Upload,
-  },
-  {
-    name: 'Reports',
-    href: '/reports',
-    icon: FileText,
-  },
-  {
-    name: 'Settings',
-    href: '/settings',
-    icon: Settings,
-  },
-  {
-    name: 'Ask AI',
-    href: '/ask-ai',
-    icon: MessageSquare,
   },
 ];
 

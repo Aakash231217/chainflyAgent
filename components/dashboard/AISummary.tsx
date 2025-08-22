@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState, useEffect } from 'react';
-import { AlertTriangle, CheckCircle, Info, AlertCircle, RefreshCw, Loader2 } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { AlertTriangle, CheckCircle, Info, AlertCircle, RefreshCw, Loader2, MessageSquare, Send, X } from 'lucide-react';
 import { generateSummary } from '@/lib/api';
 import { useDefects } from '@/hooks/useDefects';
 
@@ -17,10 +17,22 @@ interface Summary {
   };
 }
 
+interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: string;
+}
+
 export default function AISummary() {
   const [summaries, setSummaries] = useState<Summary[]>([]);
   const [loading, setLoading] = useState(false);
   const [summaryType, setSummaryType] = useState<'executive' | 'technical' | 'maintenance'>('executive');
+  const [showChat, setShowChat] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState('');
+  const [chatLoading, setChatLoading] = useState(false);
+  const chatEndRef = useRef<HTMLDivElement>(null);
   const { defects, getDefectsBySeverity } = useDefects();
 
   const generateNewSummary = async () => {
@@ -65,6 +77,75 @@ export default function AISummary() {
       generateNewSummary();
     }
   }, [defects.length, summaries.length, generateNewSummary]);
+
+  // Scroll to bottom when new chat messages arrive
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
+
+  const handleSendMessage = async () => {
+    if (!chatInput.trim() || chatLoading) return;
+
+    const userMessage: ChatMessage = {
+      id: `msg-${Date.now()}`,
+      role: 'user',
+      content: chatInput.trim(),
+      timestamp: new Date().toLocaleTimeString(),
+    };
+
+    setChatMessages(prev => [...prev, userMessage]);
+    setChatInput('');
+    setChatLoading(true);
+
+    try {
+      // Prepare context for the chat
+      const context = {
+        defects: defects.map(d => ({
+          type: d.type,
+          severity: d.severity,
+          location: d.location,
+          description: d.description,
+        })),
+        summaries: summaries.map(s => ({
+          text: s.text,
+          severity: s.severity,
+          actionItems: s.metadata?.actionItems || [],
+        })),
+        statistics: getDefectsBySeverity(),
+      };
+
+      const response = await fetch('/api/chat/defects', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: userMessage.content,
+          context,
+        }),
+      });
+
+      const data = await response.json();
+
+      const assistantMessage: ChatMessage = {
+        id: `msg-${Date.now()}-assistant`,
+        role: 'assistant',
+        content: data.response,
+        timestamp: new Date().toLocaleTimeString(),
+      };
+
+      setChatMessages(prev => [...prev, assistantMessage]);
+    } catch (error) {
+      console.error('Error sending message:', error);
+      const errorMessage: ChatMessage = {
+        id: `msg-${Date.now()}-error`,
+        role: 'assistant',
+        content: 'Sorry, I encountered an error processing your request. Please try again.',
+        timestamp: new Date().toLocaleTimeString(),
+      };
+      setChatMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
 
   const getSeverityIcon = (severity: string) => {
     switch (severity) {
@@ -134,6 +215,17 @@ export default function AISummary() {
             ) : (
               <RefreshCw className="w-4 h-4" />
             )}
+          </button>
+          <button
+            onClick={() => setShowChat(!showChat)}
+            className={`p-1.5 rounded transition-colors ${
+              showChat 
+                ? 'bg-blue-100 text-blue-600 hover:bg-blue-200' 
+                : 'text-gray-600 hover:text-gray-800 hover:bg-gray-100'
+            }`}
+            title="Chat about defects"
+          >
+            <MessageSquare className="w-4 h-4" />
           </button>
         </div>
       </div>
@@ -208,6 +300,123 @@ export default function AISummary() {
           ))
         )}
       </div>
+
+      {/* Chat Interface - Slide-out Panel */}
+      {showChat && (
+        <>
+          {/* Invisible backdrop for click-to-close */}
+          <div 
+            className="fixed inset-0 bg-transparent z-40"
+            onClick={() => setShowChat(false)}
+          />
+          
+          {/* Chat Panel */}
+          <div 
+            className="fixed right-0 top-0 h-full w-[400px] bg-white shadow-2xl transform transition-transform duration-300 z-50"
+          >
+        <div className="h-full flex flex-col">
+          {/* Chat Header */}
+          <div className="px-4 py-3 border-b flex items-center justify-between bg-gray-50">
+            <h3 className="text-lg font-semibold flex items-center gap-2">
+              <MessageSquare className="w-5 h-5" />
+              Chat about Defects
+            </h3>
+            <button
+              onClick={() => setShowChat(false)}
+              className="p-1 hover:bg-gray-200 rounded transition-colors"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+
+            {/* Chat Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
+              {chatMessages.length === 0 ? (
+                <div className="text-center text-gray-500 mt-8">
+                  <MessageSquare className="w-12 h-12 mx-auto mb-2 text-gray-300" />
+                  <p className="text-sm">Ask me anything about the detected defects!</p>
+                  <p className="text-xs mt-2">For example:</p>
+                  <div className="mt-3 space-y-2">
+                    <button
+                      onClick={() => setChatInput("What are the most critical issues I should address first?")}
+                      className="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded-full transition-colors"
+                    >
+                      What are the most critical issues?
+                    </button>
+                    <button
+                      onClick={() => setChatInput("How can I prevent these defects in the future?")}
+                      className="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded-full transition-colors mx-2"
+                    >
+                      How to prevent these defects?
+                    </button>
+                    <button
+                      onClick={() => setChatInput("What's the estimated repair cost for these issues?")}
+                      className="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1 rounded-full transition-colors"
+                    >
+                      Estimated repair costs?
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                chatMessages.map((message) => (
+                  <div
+                    key={message.id}
+                    className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div
+                      className={`max-w-[70%] px-4 py-2 rounded-lg ${
+                        message.role === 'user'
+                          ? 'bg-blue-500 text-white'
+                          : 'bg-gray-100 text-gray-800'
+                      }`}
+                    >
+                      <p className="text-sm">{message.content}</p>
+                      <p className="text-xs opacity-70 mt-1">{message.timestamp}</p>
+                    </div>
+                  </div>
+                ))
+              )}
+              {chatLoading && (
+                <div className="flex justify-start">
+                  <div className="bg-gray-100 px-4 py-2 rounded-lg">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  </div>
+                </div>
+              )}
+              <div ref={chatEndRef} />
+            </div>
+
+            {/* Chat Input */}
+            <div className="border-t p-4">
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  handleSendMessage();
+                }}
+                className="flex gap-2"
+              >
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder="Ask about the defects..."
+                  className="flex-1 px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={chatLoading}
+                />
+                <button
+                  type="submit"
+                  disabled={!chatInput.trim() || chatLoading}
+                  className="px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                >
+                  <Send className="w-4 h-4" />
+                  Send
+                </button>
+              </form>
+            </div>
+          </div>
+        </div>
+        </>
+      )}
     </div>
   );
 }
