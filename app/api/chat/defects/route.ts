@@ -1,5 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+// Define types for context data
+interface DefectData {
+  type: string;
+  severity: string;
+  location: string;
+}
+
+interface SummaryData {
+  summary: string;
+  timestamp: string;
+}
+
+interface DefectContext {
+  totalDefects: number;
+  statistics: {
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+  };
+  recentDefects: DefectData[];
+  summaries: SummaryData[];
+}
+
 export async function POST(request: NextRequest) {
   try {
     const { message, context } = await request.json();
@@ -11,22 +35,28 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const { defects, summaries, statistics } = context;
+    const typedContext = context as DefectContext;
+
+    // Prepare context for AI
+    const contextSummary = `
+Current defects analysis:
+- Total defects: ${typedContext.totalDefects}
+- Critical: ${typedContext.statistics.critical}
+- High: ${typedContext.statistics.high}
+- Medium: ${typedContext.statistics.medium}
+- Low: ${typedContext.statistics.low}
+
+Recent defects:
+${typedContext.recentDefects.map((d) => `- ${d.type} (${d.severity}) at ${d.location}`).join('\n')}
+
+Summaries:
+${typedContext.summaries.map((s) => `- ${s.summary} (${s.timestamp})`).join('\n')}
+`;
 
     // Create a prompt that includes all the defect context
     const systemPrompt = `You are an AI assistant helping users understand solar panel defects. You have access to the following information:
 
-Current Defect Statistics:
-- Critical defects: ${statistics.critical}
-- High severity: ${statistics.high}
-- Medium severity: ${statistics.medium}
-- Low severity: ${statistics.low}
-
-Detected Defects:
-${defects.map((d: any) => `- ${d.type} (${d.severity}) at ${d.location}: ${d.description}`).join('\n')}
-
-Recent Summaries:
-${summaries.map((s: any) => `- ${s.severity.toUpperCase()}: ${s.text}`).join('\n')}
+${contextSummary}
 
 Provide helpful, specific answers about these defects. Include:
 - Explanations of what the defects mean
@@ -41,7 +71,7 @@ Keep responses concise but informative.`;
 
     // For demo purposes, we'll use a mock response system
     // In production, you would integrate with your AI service (OpenAI, etc.)
-    const response = await generateChatResponse(message, systemPrompt, defects);
+    const response = await generateChatResponse(message, systemPrompt, typedContext.recentDefects);
 
     return NextResponse.json({ response });
   } catch (error) {
@@ -57,7 +87,7 @@ Keep responses concise but informative.`;
 async function generateChatResponse(
   userMessage: string,
   systemPrompt: string,
-  defects: any[]
+  defects: DefectData[]
 ): Promise<string> {
   // Simulate API delay
   await new Promise(resolve => setTimeout(resolve, 1000));
